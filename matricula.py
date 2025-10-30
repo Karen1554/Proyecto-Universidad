@@ -1,11 +1,11 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, status
 from sqlmodel import Session, select
 from models import Matricula, Estudiante, Curso
 from db import engine
 
-matricula_router = APIRouter(prefix="/matriculas", tags=["Matriculas"])
+matriculas_router = APIRouter(prefix="/matriculas", tags=["Matrículas"])
 
-@matricula_router.post("/")
+@matriculas_router.post("/", status_code=status.HTTP_201_CREATED)
 def crear_matricula(matricula: Matricula):
     with Session(engine) as session:
         estudiante = session.get(Estudiante, matricula.estudiante_id)
@@ -13,12 +13,45 @@ def crear_matricula(matricula: Matricula):
         if not estudiante or not curso:
             raise HTTPException(status_code=400, detail="Estudiante o curso inexistente")
 
+        existente = session.exec(
+            select(Matricula).where(
+                Matricula.estudiante_id == matricula.estudiante_id,
+                Matricula.curso_id == matricula.curso_id
+            )
+        ).first()
+        if existente:
+            raise HTTPException(status_code=409, detail="El estudiante ya está matriculado en este curso.")
+
         session.add(matricula)
         session.commit()
         session.refresh(matricula)
         return matricula
 
-@matricula_router.get("/")
-def listar_matriculas():
+
+@matriculas_router.delete("/{id}")
+def desmatricular(id: int):
     with Session(engine) as session:
-        return session.exec(select(Matricula)).all()
+        matricula = session.get(Matricula, id)
+        if not matricula:
+            raise HTTPException(status_code=404, detail="Matrícula no encontrada")
+        session.delete(matricula)
+        session.commit()
+        return {"detail": "Matrícula eliminada correctamente"}
+
+
+@matriculas_router.get("/curso/{curso_id}")
+def estudiantes_en_curso(curso_id: int):
+    with Session(engine) as session:
+        curso = session.get(Curso, curso_id)
+        if not curso:
+            raise HTTPException(status_code=404, detail="Curso no encontrado")
+        return [m.estudiante for m in curso.matriculas]
+
+
+@matriculas_router.get("/estudiante/{estudiante_id}")
+def cursos_de_estudiante(estudiante_id: int):
+    with Session(engine) as session:
+        estudiante = session.get(Estudiante, estudiante_id)
+        if not estudiante:
+            raise HTTPException(status_code=404, detail="Estudiante no encontrado")
+        return [m.curso for m in estudiante.matriculas]
